@@ -1,0 +1,14 @@
+{
+  "name": "@apps/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --env-file=../../.env ../../dist/apps/api/index.js",
+    "build": "tsc -p tsconfig.json",
+    "start": "node --env-file=../../.env ../../dist/apps/api/index.js"
+  },
+  "dependencies": {
+    "fastify": "^5.7.4",
+    "zod": "^3.23.8"
+  }
+}
