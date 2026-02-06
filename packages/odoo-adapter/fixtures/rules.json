@@ -1,0 +1,31 @@
+{
+  "schema": "odoo-adapter.rules.cases.v1",
+  "cases": [
+    {
+      "name": "COND simple",
+      "rule": ["id", "=", 1],
+      "expectedDomain": [["id", "=", 1]]
+    },
+    {
+      "name": "OR (id=1 ou id=2) -> flat polish",
+      "rule": { "or": [["id", "=", 1], ["id", "=", 2]] },
+      "expectedDomain": ["|", ["id", "=", 1], ["id", "=", 2]]
+    },
+    {
+      "name": "AND (a et b) -> flat polish",
+      "rule": { "and": [["is_company", "=", true], ["supplier_rank", ">", 0]] },
+      "expectedDomain": ["&", ["is_company", "=", true], ["supplier_rank", ">", 0]]
+    },
+    {
+      "name": "OR + AND ( (id=1 ou id=2) et is_company=true ) -> flat polish",
+      "rule": { "and": [{ "or": [["id", "=", 1], ["id", "=", 2]] }, ["is_company", "=", true]] },
+      "expectedDomain": ["&", "|", ["id", "=", 1], ["id", "=", 2], ["is_company", "=", true]]
+    },
+    {
+      "name": "NOT (is_company=true) -> flat polish",
+      "rule": { "not": ["is_company", "=", true] },
+      "expectedDomain": ["!", ["is_company", "=", true]]
+    }
+  ]
+}
+

@@ -11,7 +11,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
-    "clean": "rm -rf dist .tsbuildinfo",
+    "clean": "node -e \"const fs=require('fs'); for (const p of ['dist']) fs.rmSync(p,{recursive:true,force:true});\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:ui": "vitest"

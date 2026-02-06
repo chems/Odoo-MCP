@@ -1,0 +1,74 @@
+{
+  "schema": "odoo-adapter.search_read.cases.v1",
+  "model": "res.partner",
+  "cases": [
+    {
+      "name": "par id = 1",
+      "rule": ["id", "=", 1],
+      "fields": ["id", "name", "is_company", "supplier_rank", "customer_rank", "company_id"],
+      "limit": 1
+    },
+    {
+      "name": "par display_name ~ \"BM Bat SRL\"",
+      "rule": ["display_name", "ilike", "BM Bat SRL"],
+      "fields": ["id", "name", "display_name", "is_company"],
+      "limit": 5
+    },
+    {
+      "name": "par id = 1 OU id = 2 (OR)",
+      "rule": {
+        "or": [
+          ["id", "=", 1],
+          ["id", "=", 2]
+        ]
+      },
+      "fields": ["id", "name", "is_company"],
+      "limit": 5
+    },
+    {
+      "name": "par is_company = true ET supplier_rank > 0 (AND)",
+      "rule": {
+        "and": [
+          ["is_company", "=", true],
+          ["supplier_rank", ">", 0]
+        ]
+      },
+      "fields": ["id", "name", "is_company", "supplier_rank"],
+      "limit": 10
+    },
+    {
+      "name": "par (id = 1 OU id = 2) ET is_company = true (OR + AND)",
+      "rule": {
+        "and": [
+          { "or": [["id", "=", 1], ["id", "=", 2]] },
+          ["is_company", "=", true]
+        ]
+      },
+      "fields": ["id", "name", "is_company"],
+      "limit": 5
+    },
+    {
+      "name": "par (id = 1 OU id = 2 OU id = 3) ET is_company = false (OR multiple + AND)",
+      "rule": {
+        "and": [
+          { "or": [["id", "=", 1], ["id", "=", 2], ["id", "=", 3]] },
+          ["is_company", "=", false]
+        ]
+      },
+      "fields": ["id", "name", "is_company"],
+      "limit": 10
+    },
+    {
+      "name": "par (is_company = true ET supplier_rank > 0) OU (is_company = false ET email != false)",
+      "rule": {
+        "or": [
+          { "and": [["is_company", "=", true], ["supplier_rank", ">", 0]] },
+          { "and": [["is_company", "=", false], ["email", "!=", false]] }
+        ]
+      },
+      "fields": ["id", "name", "is_company", "supplier_rank", "email"],
+      "limit": 10
+    }
+  ]
+}
+

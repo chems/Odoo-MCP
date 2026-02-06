@@ -19,7 +19,6 @@ type JsonRpcResponse<T> =
 
 export class OdooJsonRpcClient {
   private readonly endpoint: string;
-  private requestId = 1;
 
   constructor(private creds: OdooCredentials, private fetchImpl: typeof fetch = fetch) {
     this.endpoint = `${creds.url}/jsonrpc`;
@@ -80,35 +79,70 @@ export class OdooJsonRpcClient {
       id: rpcId
     };
 
-    // Debug: log JSON-RPC body (API key masquée) pour faciliter le diagnostic
-    try {
-      const safeArgs = Array.isArray(req.params.args) ? [...req.params.args] : req.params.args;
-      if (Array.isArray(safeArgs) && safeArgs.length >= 3) {
-        // Position 2 = apiKey dans [db, uid, apiKey, model, method, args, kwargs]
-        safeArgs[2] = "***masked_api_key***";
-      }
-      const debugPayload = {
-        ...req,
-        params: {
-          ...req.params,
-          args: safeArgs
+    const debugEnabled =
+      process.env.ODOO_ADAPTER_DEBUG === "1" ||
+      process.env.ODOO_ADAPTER_DEBUG === "true";
+
+    // Debug (opt-in): log JSON-RPC body (API key masquée) pour faciliter le diagnostic
+    if (debugEnabled) {
+      try {
+        const safeArgs = Array.isArray(req.params.args) ? [...req.params.args] : req.params.args;
+        if (Array.isArray(safeArgs) && safeArgs.length >= 3) {
+          // Position 2 = apiKey dans [db, uid, apiKey, model, method, args, kwargs]
+          safeArgs[2] = "***masked_api_key***";
         }
-      };
-      // Utiliser console.debug pour ne pas polluer les logs en prod si filtrés
-      console.debug("[odoo-adapter] JSON-RPC request:", JSON.stringify(debugPayload, null, 2));
-    } catch {
-      // Ne jamais casser l'appel en cas d'erreur de log
+        const debugPayload = {
+          ...req,
+          params: {
+            ...req.params,
+            args: safeArgs
+          }
+        };
+        console.debug("[odoo-adapter] JSON-RPC request:", JSON.stringify(debugPayload, null, 2));
+      } catch {
+        // Ne jamais casser l'appel en cas d'erreur de log
+      }
     }
 
-    const res = await this.fetchImpl(this.endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(req)
-    });
+    const max429Retries = (() => {
+      const raw = process.env.ODOO_ADAPTER_RETRY_429;
+      if (!raw) return 3;
+      const n = Number(raw);
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 3;
+    })();
 
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new OdooError(`HTTP ${res.status} calling Odoo JSON-RPC`, res.status, body);
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    let res: Response | null = null;
+    for (let attempt = 0; attempt <= max429Retries; attempt++) {
+      res = await this.fetchImpl(this.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req)
+      });
+
+      if (res.ok) break;
+
+      // Retry uniquement sur 429 (rate limit). C'est sûr: la requête n'est pas acceptée.
+      if (res.status === 429 && attempt < max429Retries) {
+        // Essayer de respecter Retry-After (secondes) si fourni
+        const ra = res.headers.get("retry-after");
+        const raSeconds = ra ? Number(ra) : NaN;
+        const waitMs = Number.isFinite(raSeconds) && raSeconds > 0
+          ? Math.round(raSeconds * 1000)
+          : 400 * Math.pow(2, attempt); // backoff: 400ms, 800ms, 1600ms...
+
+        await res.text().catch(() => ""); // consommer le body (best-effort)
+        await sleep(waitMs);
+        continue;
+      }
+
+      break;
+    }
+
+    if (!res || !res.ok) {
+      const body = await res?.text().catch(() => "") ?? "";
+      throw new OdooError(`HTTP ${res?.status ?? 0} calling Odoo JSON-RPC`, res?.status ?? 0, body);
     }
 
     const data = (await res.json()) as JsonRpcResponse<T>;

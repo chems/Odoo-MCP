@@ -1,20 +1,25 @@
 export type OdooId = number;
 
 /**
- * Type récursif pour les domaines Odoo supportant les opérateurs logiques OR/AND
- * 
- * Format Odoo :
- * - Condition simple : ["field", "operator", "value"]
- * - OR : ["|", domain1, domain2] = domain1 OU domain2
- * - AND : ["&", domain1, domain2] = domain1 ET domain2
- * - Par défaut, plusieurs conditions sont en AND : [cond1, cond2] = cond1 ET cond2
+ * Domaine Odoo (format JSON-RPC / ORM)
+ *
+ * Représentation "polonaise" plate (celle la plus fiable en pratique) :
+ * - Conditions: ["field", "operator", value]
+ * - Opérateurs logiques: "&" (AND), "|" (OR), "!" (NOT)
+ *
+ * Exemples:
+ * - AND de 2 conditions: ["&", ["id","=",1], ["is_company","=",true]]
+ * - OR de 2 conditions:  ["|", ["id","=",1], ["id","=",2]]
+ * - (id=1 OR id=2) AND is_company=true:
+ *   ["&", "|", ["id","=",1], ["id","=",2], ["is_company","=",true]]
+ *
+ * Note: Odoo accepte aussi des AND implicites sous forme de liste de conditions,
+ * mais on privilégie ici la forme explicite/plate car elle évite des erreurs serveur
+ * sur certaines instances en SaaS.
  */
 export type DomainCondition = [string, string, unknown];
-export type DomainOperator = "|" | "&";
-export type Domain = 
-  | DomainCondition 
-  | [DomainOperator, Domain, Domain]
-  | Domain[];
+export type DomainToken = "&" | "|" | "!" | DomainCondition;
+export type Domain = DomainToken[];
 
 export interface NameSearchOptions {
   limit?: number;

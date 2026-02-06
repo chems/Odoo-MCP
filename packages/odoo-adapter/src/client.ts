@@ -1,64 +1,38 @@
 import type { Domain, NameSearchOptions, OdooCredentials, SearchReadOptions } from "./types.js";
 import { OdooJsonRpcClient } from "./jsonrpc.js";
 import { readOdooCredentialsFromEnv } from "./config.js";
+import type { Rule } from "./rules.js";
+import { toOdooDomain } from "./rules.js";
 
-/**
- * Helpers pour construire des domaines avec opérateurs logiques
- * 
- * Format Odoo :
- * - OR : ["|", condition1, condition2]
- * - AND implicite : [condition1, condition2] = condition1 ET condition2
- * - AND explicite : ["&", condition1, condition2]
- * - Combiner OR + AND : [["|", cond1, cond2], cond3] = (cond1 OU cond2) ET cond3
- * 
- * Les conditions doivent être des tuples simples : ["field", "operator", "value"]
- */
-export function domainOR(...conditions: Domain[]): Domain {
-  if (conditions.length === 0) return [];
-  if (conditions.length === 1) return conditions[0];
-  
-  // Pour 2 conditions : ["|", condition1, condition2]
-  if (conditions.length === 2) {
-    return ["|", conditions[0], conditions[1]] as Domain;
-  }
-  
-  // Pour plus de 2 conditions : construire récursivement
-  // ["|", condition1, ["|", condition2, condition3]]
-  return conditions.reduce((acc, condition) => {
-    if (!acc) return condition;
-    return ["|", acc, condition] as Domain;
-  });
+function isAllFields(fields: SearchReadOptions["fields"]): fields is ["__all__"] {
+  return Array.isArray(fields) && fields.length === 1 && fields[0] === "__all__";
 }
 
-export function domainAND(...conditions: Domain[]): Domain {
-  if (conditions.length === 0) return [];
-  if (conditions.length === 1) return conditions[0];
-  
-  // Pour combiner OR et AND, utiliser AND implicite d'Odoo (tableau plat)
-  // En Odoo, [cond1, cond2] = cond1 ET cond2 (AND implicite)
-  // Donc [["|", cond1, cond2], cond3] = (cond1 OU cond2) ET cond3
-  // Vérifier si une des conditions est un OR ou un AND imbriqué
-  const hasNestedOperator = conditions.some(c => 
-    Array.isArray(c) && (c[0] === "|" || c[0] === "&")
-  );
-  
-  if (hasNestedOperator) {
-    // AND implicite : retourner un tableau avec toutes les conditions
-    // Format : [["|", cond1, cond2], cond3] = (cond1 OU cond2) ET cond3
-    return conditions as Domain;
-  }
-  
-  // Pour 2 conditions simples : ["&", condition1, condition2]
-  if (conditions.length === 2) {
-    return ["&", conditions[0], conditions[1]] as Domain;
-  }
-  
-  // Pour plus de 2 conditions simples : construire récursivement
-  // ["&", condition1, ["&", condition2, condition3]]
-  return conditions.reduce((acc, condition) => {
-    if (!acc) return condition;
-    return ["&", acc, condition] as Domain;
-  });
+function isLogicalToken(t: Domain[number]): t is "&" | "|" | "!" {
+  return t === "&" || t === "|" || t === "!";
+}
+
+function isConditionList(domain: Domain): boolean {
+  return domain.length > 0 && domain.every((t) => !isLogicalToken(t));
+}
+
+/**
+ * Normalise un domain "liste de conditions" en forme "polonaise" explicite.
+ * Ex:
+ * - [[a],[b],[c]] => ["&","&",[a],[b],[c]]
+ */
+function normalizeImplicitAnd(domain: Domain): Domain {
+  if (domain.length <= 1) return domain;
+  if (!isConditionList(domain)) return domain;
+  return [...Array.from({ length: domain.length - 1 }, () => "&"), ...domain] as Domain;
+}
+
+function andExpr(a: Domain, b: Domain): Domain {
+  const aa = normalizeImplicitAnd(a);
+  const bb = normalizeImplicitAnd(b);
+  if (aa.length === 0) return bb;
+  if (bb.length === 0) return aa;
+  return ["&", ...aa, ...bb] as Domain;
 }
 
 /** Helpers génériques */
@@ -68,11 +42,16 @@ async function nameSearch(
   query: string,
   options: NameSearchOptions = {}
 ): Promise<Array<{ id: number; name: string }>> {
-  // Construire le domain : [["name", "ilike", query]] ou utiliser options.args si fourni
   const operator = options.operator ?? "ilike";
-  const domain: Domain = options.args && options.args.length > 0 
-    ? options.args 
-    : [["name", operator, query]];
+
+  // Domain de base: [["name", op, query]]
+  const base: Domain = [["name", operator, query]];
+
+  // Si options.args est fourni, il s'agit d'un filtre supplémentaire (AND)
+  const domain =
+    options.args && options.args.length > 0
+      ? (query.trim().length > 0 ? andExpr(base, options.args) : normalizeImplicitAnd(options.args))
+      : base;
   
   const result = await rpc.executeKw<Array<{ id: number; name: string }>>(
     model,
@@ -92,17 +71,29 @@ async function searchRead<T extends Record<string, unknown>>(
   domain: Domain,
   options: SearchReadOptions = {}
 ): Promise<T[]> {
+  const kwargs: Record<string, unknown> = {
+    limit: options.limit ?? 80,
+    offset: options.offset ?? 0
+  };
+  if (options.order) kwargs.order = options.order;
+  if (options.fields !== undefined && !isAllFields(options.fields)) kwargs.fields = options.fields;
+
   return rpc.executeKw<T[]>(
     model,
     "search_read",
     [domain],
-    {
-      fields: options.fields ?? [],
-      limit: options.limit ?? 80,
-      offset: options.offset ?? 0,
-      order: options.order
-    }
+    kwargs
   );
+}
+
+async function searchReadWithRule<T extends Record<string, unknown>>(
+  rpc: OdooJsonRpcClient,
+  model: string,
+  rule: Rule,
+  options: SearchReadOptions = {}
+): Promise<T[]> {
+  const domain = toOdooDomain(rule);
+  return searchRead<T>(rpc, model, domain, options);
 }
 
 async function create(
@@ -134,6 +125,8 @@ export function createOdooClient(creds: OdooCredentials) {
       nameSearch: (query: string, options?: NameSearchOptions) => nameSearch(rpc, "res.partner", query, options),
       searchRead: <T extends Record<string, unknown>>(domain: Domain, options?: SearchReadOptions) =>
         searchRead<T>(rpc, "res.partner", domain, options),
+      searchReadRule: <T extends Record<string, unknown>>(rule: Rule, options?: SearchReadOptions) =>
+        searchReadWithRule<T>(rpc, "res.partner", rule, options),
       create: (vals: Record<string, unknown>) => create(rpc, "res.partner", vals),
       write: (ids: number[], vals: Record<string, unknown>) => write(rpc, "res.partner", ids, vals)
     },
@@ -142,6 +135,8 @@ export function createOdooClient(creds: OdooCredentials) {
       nameSearch: (query: string, options?: NameSearchOptions) => nameSearch(rpc, "product.product", query, options),
       searchRead: <T extends Record<string, unknown>>(domain: Domain, options?: SearchReadOptions) =>
         searchRead<T>(rpc, "product.product", domain, options),
+      searchReadRule: <T extends Record<string, unknown>>(rule: Rule, options?: SearchReadOptions) =>
+        searchReadWithRule<T>(rpc, "product.product", rule, options),
       create: (vals: Record<string, unknown>) => create(rpc, "product.product", vals),
       write: (ids: number[], vals: Record<string, unknown>) => write(rpc, "product.product", ids, vals)
     },
@@ -149,6 +144,8 @@ export function createOdooClient(creds: OdooCredentials) {
     saleOrders: {
       searchRead: <T extends Record<string, unknown>>(domain: Domain, options?: SearchReadOptions) =>
         searchRead<T>(rpc, "sale.order", domain, options),
+      searchReadRule: <T extends Record<string, unknown>>(rule: Rule, options?: SearchReadOptions) =>
+        searchReadWithRule<T>(rpc, "sale.order", rule, options),
       create: (vals: Record<string, unknown>) => create(rpc, "sale.order", vals),
       write: (ids: number[], vals: Record<string, unknown>) => write(rpc, "sale.order", ids, vals)
     },
@@ -156,6 +153,8 @@ export function createOdooClient(creds: OdooCredentials) {
     saleOrderLines: {
       searchRead: <T extends Record<string, unknown>>(domain: Domain, options?: SearchReadOptions) =>
         searchRead<T>(rpc, "sale.order.line", domain, options),
+      searchReadRule: <T extends Record<string, unknown>>(rule: Rule, options?: SearchReadOptions) =>
+        searchReadWithRule<T>(rpc, "sale.order.line", rule, options),
       create: (vals: Record<string, unknown>) => create(rpc, "sale.order.line", vals),
       write: (ids: number[], vals: Record<string, unknown>) => write(rpc, "sale.order.line", ids, vals)
     },

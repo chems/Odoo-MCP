@@ -1,0 +1,18 @@
+{
+  "schema": "odoo-adapter.search_read.cases.v1",
+  "model": "res.partner",
+  "cases": [
+    {
+      "name": "contacts uniquement (is_company = false)",
+      "rule": {
+        "and": [
+          ["is_company", "=", false],
+          ["active", "=", true]
+        ]
+      },
+      "fields": ["id", "name", "is_company", "email", "phone", "active"],
+      "limit": 10
+    }
+  ]
+}
+

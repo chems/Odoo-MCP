@@ -1,0 +1,30 @@
+{
+  "schema": "odoo-adapter.search_read.cases.v1",
+  "model": "product.template",
+  "cases": [
+    {
+      "name": "par id = 1",
+      "rule": ["id", "=", 1],
+      "fields": ["id", "name"],
+      "limit": 1
+    },
+    {
+      "name": "par name ~ \"Service\"",
+      "rule": ["name", "ilike", "Service"],
+      "fields": ["id", "name"],
+      "limit": 10
+    },
+    {
+      "name": "par (id = 1 OU id = 2) (OR)",
+      "rule": {
+        "or": [
+          ["id", "=", 1],
+          ["id", "=", 2]
+        ]
+      },
+      "fields": ["id", "name"],
+      "limit": 5
+    }
+  ]
+}
+

@@ -1,29 +1,17 @@
-import { config } from "dotenv";
-import { resolve } from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
-
-// Charger le .env depuis la racine du projet AVANT tous les imports
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const envPath = resolve(__dirname, "../../../.env");
-const result = config({ path: envPath });
-if (result.error) {
-  console.warn(`[test] Failed to load .env from ${envPath}:`, result.error);
-} else {
-  console.log(`[test] Loaded .env from ${envPath}`);
-}
+import "./_setup_env.js";
 
 import { describe, it, expect } from "vitest";
 import { createOdooClientFromEnv } from "../src/client.js";
-import { productTests } from "../testdata/products.js";
+import { readFixtureJson, type SearchReadFixture } from "./_fixtures.js";
+import type { Rule } from "../src/rules.js";
 
 describe("odoo-adapter: products.searchRead", () => {
   const odoo = createOdooClientFromEnv();
+  const fixture = readFixtureJson<SearchReadFixture>("products.json");
 
-  for (const t of productTests) {
+  for (const t of fixture.cases) {
     it(`searchRead ${t.name}`, async () => {
-      const res = await odoo.products.searchRead(t.domain, {
+      const res = await odoo.products.searchReadRule(t.rule as Rule, {
         fields: t.fields,
         limit: t.limit ?? 5
       });
