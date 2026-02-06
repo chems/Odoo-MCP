@@ -9,6 +9,12 @@
   },
   "dependencies": {
     "bullmq": "^5.10.2",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@packages/mcp-odoo": "workspace:*",
+    "@packages/openai": "workspace:*",
+    "@packages/prompts": "workspace:*",
+    "@packages/report": "workspace:*",
+    "@packages/shared": "workspace:*",
+    "@packages/queue": "workspace:*"
   }
 }
